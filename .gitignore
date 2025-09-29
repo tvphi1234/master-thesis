@@ -1,0 +1,6 @@
+dataset/*
+cache/*
+data/*
+data_patients/*
+models/*
+*.png
