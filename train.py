@@ -23,6 +23,9 @@ def parse_args():
                         help='Batch size for training (default: 32)')
     parser.add_argument('--learning-rate', type=float, default=0.0001,
                         help='Learning rate for optimizer (default: 0.0001)')
+    parser.add_argument('--model', type=str, default='xception',
+                        choices=['xception', 'resnet50', 'repvgg_a0', 'repvgg_a1', 'repvgg_a2', 'repvgg_b0', 'repvgg_b1', 'repvgg_b2', 'repvgg_b3'],
+                        help='Model architecture to use (default: xception)')
     return parser.parse_args()
 
 
@@ -44,7 +47,7 @@ val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
 
 
 # model
-model = load_model(model_name=MODEL_NAME, num_classes=2, is_train=True)
+model = load_model(model_name=args.model, num_classes=2, is_train=True)
 
 
 # Loss and Optimizer
@@ -134,25 +137,25 @@ trained_model, best_model_state, best_accuracy, train_accs, val_accs, train_loss
 
 # get date with format yyyymmdd
 date_str = datetime.now().strftime("%Y%m%d")
-MODEL_NAME = f"{MODEL_NAME}_{date_str}"
+model_save_name = f"{args.model}_{date_str}"
 
 # Save the models
-torch.save(trained_model.state_dict(), f"{MODEL_NAME}_last.pth")
-print(f"Last model saved as {MODEL_NAME}_last.pth")
+torch.save(trained_model.state_dict(), f"{model_save_name}_last.pth")
+print(f"Last model saved as {model_save_name}_last.pth")
 
-torch.save(best_model_state, f"{MODEL_NAME}_best.pth")
+torch.save(best_model_state, f"{model_save_name}_best.pth")
 print(
-    f"Best model saved as {MODEL_NAME}_best.pth with accuracy: {best_accuracy:.4f}")
+    f"Best model saved as {model_save_name}_best.pth with accuracy: {best_accuracy:.4f}")
 
 
 # logging to a file
-with open(f"{MODEL_NAME}_log.txt", "w") as f:
+with open(f"{model_save_name}_log.txt", "w") as f:
     f.write(f"Training completed for {args.epochs} epochs\n")
-    f.write(f"Last model: {MODEL_NAME}_last.pth\n")
+    f.write(f"Last model: {model_save_name}_last.pth\n")
     f.write(
-        f"Best model: {MODEL_NAME}_best.pth with accuracy: {best_accuracy:.4f}\n")
+        f"Best model: {model_save_name}_best.pth with accuracy: {best_accuracy:.4f}\n")
     f.write(f"train_accuracies: {train_accs}\n")
     f.write(f"val_accuracies: {val_accs}\n")
     f.write(f"train_losses: {train_losses}\n")
     f.write(f"val_losses: {val_losses}\n")
-print("Training log saved to training_log.txt")
+print(f"Training log saved to {model_save_name}_log.txt")
