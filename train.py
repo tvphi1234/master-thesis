@@ -1,4 +1,6 @@
 import os
+import argparse
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -11,25 +13,34 @@ from utils import DEVICE, MODEL_NAME
 from utils import get_train_transforms, get_val_transforms, load_model
 
 
-# Parameters
-EPOCHS = 30
-BATCH_SIZE = 32
-LEARNING_RATE = 0.0001
-DATA_DIR = "data"
+def parse_args():
+    parser = argparse.ArgumentParser(description='Train a deep learning model')
+    parser.add_argument('--data-dir', type=str, default='data',
+                        help='Directory containing the training data (default: data)')
+    parser.add_argument('--epochs', type=int, default=30,
+                        help='Number of training epochs (default: 30)')
+    parser.add_argument('--batch-size', type=int, default=32,
+                        help='Batch size for training (default: 32)')
+    parser.add_argument('--learning-rate', type=float, default=0.0001,
+                        help='Learning rate for optimizer (default: 0.0001)')
+    return parser.parse_args()
 
+
+# Parse command line arguments
+args = parse_args()
 
 # training data loaders
 transform_train = get_train_transforms()
 train_dataset = datasets.ImageFolder(os.path.join(
-    DATA_DIR, "train"), transform=transform_train)
-train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
+    args.data_dir, "train"), transform=transform_train)
+train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
 
 
 # validation data loaders
 transform_val = get_val_transforms()
 val_dataset = datasets.ImageFolder(os.path.join(
-    DATA_DIR, "val"), transform=transform_val)
-val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
+    args.data_dir, "val"), transform=transform_val)
+val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
 
 
 # model
@@ -39,7 +50,7 @@ model = load_model(model_name=MODEL_NAME, num_classes=2, is_train=True)
 # Loss and Optimizer
 # Use BCEWithLogitsLoss for binary classification with sigmoid
 criterion = nn.CrossEntropyLoss()
-optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
+optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
 
 
 # Training Loop with best and last model saving and plotting
@@ -118,7 +129,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, epochs):
 
 # Train the model
 trained_model, best_model_state, best_accuracy, train_accs, val_accs, train_losses, val_losses = train_model(
-    model, train_loader, val_loader, criterion, optimizer, EPOCHS
+    model, train_loader, val_loader, criterion, optimizer, args.epochs
 )
 
 # get date with format yyyymmdd
@@ -136,7 +147,7 @@ print(
 
 # logging to a file
 with open(f"{MODEL_NAME}_log.txt", "w") as f:
-    f.write(f"Training completed for {EPOCHS} epochs\n")
+    f.write(f"Training completed for {args.epochs} epochs\n")
     f.write(f"Last model: {MODEL_NAME}_last.pth\n")
     f.write(
         f"Best model: {MODEL_NAME}_best.pth with accuracy: {best_accuracy:.4f}\n")
