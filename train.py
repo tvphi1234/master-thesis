@@ -121,7 +121,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, epochs):
         print(f"Val Loss: {val_loss:.4f}, Val Accuracy: {val_accuracy:.4f}")
 
         # Save best model
-        if val_accuracy > best_val_accuracy:
+        if val_accuracy >= best_val_accuracy:
             best_val_accuracy = val_accuracy
             best_model_state = model.state_dict().copy()
             print(
