@@ -61,7 +61,7 @@ class EnsembleTrainingPipeline:
 
         # Learning rate scheduler
         self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-            self.optimizer, mode='min', patience=5, factor=0.5, verbose=True
+            self.optimizer, mode='min', patience=5, factor=0.5
         )
 
         # Trainer
