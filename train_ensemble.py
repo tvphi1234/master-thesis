@@ -23,7 +23,7 @@ def parse_args():
     parser.add_argument('--data-dir', type=str, default='data',
                         help='Directory containing the training data (default: data)')
     parser.add_argument('--ensemble-method', type=str, default='average',
-                        choices=['average', 'weighted', 'meta_learner'],
+                        choices=['average', 'weighted', 'meta_learner', 'feature_fusion'],
                         help='Ensemble method to use (default: average)')
     parser.add_argument('--epochs', type=int, default=30,
                         help='Number of training epochs (default: 30)')
