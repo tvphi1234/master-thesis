@@ -121,11 +121,16 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, epochs):
         print(f"Val Loss: {val_loss:.4f}, Val Accuracy: {val_accuracy:.4f}")
 
         # Save best model
-        if val_accuracy >= best_val_accuracy:
+        if val_accuracy > best_val_accuracy:
             best_val_accuracy = val_accuracy
             best_model_state = model.state_dict().copy()
             print(
                 f"New best model saved with validation accuracy: {best_val_accuracy:.4f}")
+        elif val_accuracy == best_val_accuracy and train_accuracy > max(train_accuracies[:-1]):
+            best_val_accuracy = val_accuracy
+            best_model_state = model.state_dict().copy()
+            print(
+                f"New best model saved with validation accuracy: {best_val_accuracy:.4f} and improved training accuracy: {train_accuracy:.4f}")
 
     return model, best_model_state, best_val_accuracy, train_accuracies, val_accuracies, train_losses, val_losses
 
