@@ -24,7 +24,8 @@ def parse_args():
     parser.add_argument('--learning-rate', type=float, default=0.0001,
                         help='Learning rate for optimizer (default: 0.0001)')
     parser.add_argument('--model', type=str, default='xception',
-                        choices=['xception', 'resnet50', 'repvgg_a0', 'mobilenet_v2'],
+                        choices=['xception', 'resnet50', 'repvgg_a0', 'repvgg_a1', 'repvgg_a2', 'repvgg_b0', 'repvgg_b1', 'repvgg_b2', 'repvgg_b3',
+                                'mobilenetv2_100', 'mobilenetv2_110d', 'mobilenetv2_120d', 'mobilenetv3_large_100', 'mobilenetv3_small_100'],
                         help='Model architecture to use (default: xception)')
     return parser.parse_args()
 
