@@ -1,6 +1,7 @@
 import os
 import torch
 import shutil
+import argparse
 import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -12,21 +13,33 @@ from sklearn.metrics import confusion_matrix, classification_report, roc_curve, 
 from utils import DEVICE
 from utils import load_model, get_val_transforms
 
-# Parameters
-BATCH_SIZE = 1
-DATA_SET_PATH = "data/val"
-MODEL_PATH = "./models/xception_20250927_best.pth"
+def get_args():
+    parser = argparse.ArgumentParser(description='Evaluate a deep learning model')
+    parser.add_argument('--data-dir', type=str, default="data/val",
+                        help='Directory containing the validation data (default: data/val)')
+    parser.add_argument('--model-path', type=str, default="./models/xception_20251003_best.pth",
+                        help='Path to the trained model (default: ./models/xception_20251003_best.pth)')
+    parser.add_argument('--batch-size', type=int, default=1,
+                        help='Batch size for evaluation (default: 1)')
+    parser.add_argument('--model', type=str, default='xception',
+                        choices=['xception', 'resnet50', 'repvgg_a0'],
+                        help='Model architecture to use (default: xception)')
+    return parser.parse_args()
+
+# Parse command line arguments
+args = get_args()
 
 # Data Preparation
 val_transform = get_val_transforms()
 
 # Load validation dataset
-val_dataset = datasets.ImageFolder(DATA_SET_PATH, transform=val_transform)
-val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
+val_dataset = datasets.ImageFolder(args.data_dir, transform=val_transform)
+val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
 
 # Load model
-model = load_model(num_classes=2,
-                   model_path=MODEL_PATH,
+model = load_model(model_name=args.model,
+                   num_classes=2,
+                   model_path=args.model_path,
                    is_train=False)
 
 
