@@ -22,7 +22,7 @@ def get_args():
     parser.add_argument('--batch-size', type=int, default=1,
                         help='Batch size for evaluation (default: 1)')
     parser.add_argument('--model', type=str, default='xception',
-                        choices=['xception', 'resnet50', 'repvgg_a0'],
+                        choices=['xception', 'resnet50', 'repvgg_a0', 'mobilenetv2_110d'],
                         help='Model architecture to use (default: xception)')
     return parser.parse_args()
 

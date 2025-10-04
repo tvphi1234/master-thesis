@@ -58,7 +58,7 @@ optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
 
 
 # Training Loop with best and last model saving and plotting
-def train_model(model, train_loader, val_loader, criterion, optimizer, epochs):
+def train_model(model, train_loader, val_loader, criterion, optimizer, epochs, model_save_name):
     best_val_accuracy = 0.0
     best_model_state = None
 
@@ -125,25 +125,28 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, epochs):
         if val_accuracy > best_val_accuracy:
             best_val_accuracy = val_accuracy
             best_model_state = model.state_dict().copy()
+            torch.save(best_model_state, f"{model_save_name}_best_{epoch+1}.pth")
             print(
                 f"New best model saved with validation accuracy: {best_val_accuracy:.4f}")
+            # save the new best model
         elif val_accuracy == best_val_accuracy and train_accuracy > max(train_accuracies[:-1]):
             best_val_accuracy = val_accuracy
             best_model_state = model.state_dict().copy()
+            torch.save(best_model_state, f"{model_save_name}_best_{epoch+1}.pth")
             print(
                 f"New best model saved with validation accuracy: {best_val_accuracy:.4f} and improved training accuracy: {train_accuracy:.4f}")
 
     return model, best_model_state, best_val_accuracy, train_accuracies, val_accuracies, train_losses, val_losses
 
 
-# Train the model
-trained_model, best_model_state, best_accuracy, train_accs, val_accs, train_losses, val_losses = train_model(
-    model, train_loader, val_loader, criterion, optimizer, args.epochs
-)
-
 # get date with format yyyymmdd
 date_str = datetime.now().strftime("%Y%m%d")
 model_save_name = f"{args.model}_{date_str}"
+
+# Train the model
+trained_model, best_model_state, best_accuracy, train_accs, val_accs, train_losses, val_losses = train_model(
+    model, train_loader, val_loader, criterion, optimizer, args.epochs, model_save_name
+)
 
 # Save the models
 torch.save(trained_model.state_dict(), f"{model_save_name}_last.pth")
