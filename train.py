@@ -60,6 +60,7 @@ optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
 # Training Loop with best and last model saving and plotting
 def train_model(model, train_loader, val_loader, criterion, optimizer, epochs, model_save_name):
     best_val_accuracy = 0.0
+    best_train_accuracy = 0.0
     best_model_state = None
 
     # Lists to store accuracy and loss for plotting
@@ -124,13 +125,15 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, epochs, m
         # Save best model
         if val_accuracy > best_val_accuracy:
             best_val_accuracy = val_accuracy
+            best_train_accuracy = train_accuracy
             best_model_state = model.state_dict().copy()
             torch.save(best_model_state, f"{model_save_name}_best_{epoch+1}.pth")
             print(
                 f"New best model saved with validation accuracy: {best_val_accuracy:.4f}")
             # save the new best model
-        elif val_accuracy == best_val_accuracy and train_accuracy > max(train_accuracies[:-1]):
+        elif val_accuracy == best_val_accuracy and train_accuracy > best_train_accuracy:
             best_val_accuracy = val_accuracy
+            best_train_accuracy = train_accuracy
             best_model_state = model.state_dict().copy()
             torch.save(best_model_state, f"{model_save_name}_best_{epoch+1}.pth")
             print(
