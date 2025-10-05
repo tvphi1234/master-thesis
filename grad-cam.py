@@ -49,6 +49,13 @@ def get_target_layers(model, model_name):
     elif model_name.startswith('repvgg'):
         # For RepVGG models, use the last convolutional stage
         return [model.stages[-1]]  # Last stage
+    elif model_name.startswith('mobilenet'):
+        # For MobileNet models, use the last convolutional layer before classifier
+        if hasattr(model, 'conv_head'):
+            return [model.conv_head]  # MobileNetV2/V3 head conv
+        elif hasattr(model, 'features'):
+            # Alternative structure - use last feature layer
+            return [model.features[-1]]
 
 
 
@@ -64,7 +71,7 @@ def print_model_structure(model, max_depth=2):
             print(f"{indent}{name}: {type(module).__name__}")
 
 # Uncomment the next line if you want to see the model structure
-# print_model_structure(model)
+print_model_structure(model)
 
 target_layers = get_target_layers(model, args.model)
 
@@ -87,11 +94,19 @@ grad_cam = GradCAM(model=model, target_layers=target_layers)
 # 1 là class bạn muốn xem, có thể thay đổi
 targets = [ClassifierOutputTarget(1)]
 
+classes = {
+    "Benign": 0,
+    "Cancer": 1
+}
+
 
 for root, _, files in os.walk(args.data_dir):
     for file in files:
         if not file.lower().endswith(('.png', '.jpg', '.jpeg')):
             continue
+
+        class_idx = classes[os.path.basename(root)]
+        targets = [ClassifierOutputTarget(class_idx)]
 
         img_file = os.path.join(root, file)
         img_pil = Image.open(img_file).convert("RGB")
