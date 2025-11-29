@@ -1,4 +1,6 @@
 import os
+import argparse
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -14,39 +16,52 @@ from utils import DEVICE, MODEL_NAME
 from utils import get_train_transforms, get_val_transforms, load_model
 
 
-# Parameters
-EPOCHS = 100
-BATCH_SIZE = 8
-LEARNING_RATE = 0.0001
-DATA_DIR = "data"
-MODELS_DIR = "pretrained_models/models_x10/2025_11_21_640x640"
-PATIENCE = 7  # Early stopping patience
+def parse_args():
+    parser = argparse.ArgumentParser(description='Train a deep learning model')
+    parser.add_argument('--data-dir', type=str, default='data',
+                        help='Directory containing the training data (default: data)')
+    parser.add_argument('--epochs', type=int, default=30,
+                        help='Number of training epochs (default: 30)')
+    parser.add_argument('--batch-size', type=int, default=32,
+                        help='Batch size for training (default: 32)')
+    parser.add_argument('--learning-rate', type=float, default=0.0001,
+                        help='Learning rate for optimizer (default: 0.0001)')
+    parser.add_argument('--model', type=str, default='xception',
+                        choices=['xception', 'resnet50', 'repvgg_a0', 'repvgg_a1', 'repvgg_a2', 'repvgg_b0', 'repvgg_b1', 'repvgg_b2', 'repvgg_b3',
+                                 'mobilenetv2_100', 'mobilenetv2_110d', 'mobilenetv2_120d', 'mobilenetv3_large_100', 'mobilenetv3_small_100'],
+                        help='Model architecture to use (default: xception)')
+    return parser.parse_args()
 
-# Create models directory if it doesn't exist
-os.makedirs(MODELS_DIR, exist_ok=True)
 
+# Parse command line arguments
+args = parse_args()
 
 # training data loaders
 transform_train = get_train_transforms()
 train_dataset = datasets.ImageFolder(os.path.join(
-    DATA_DIR, "train"), transform=transform_train)
-train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
+    args.data_dir, "train"), transform=transform_train)
+train_loader = DataLoader(
+    train_dataset, batch_size=args.batch_size, shuffle=True)
 
 
 # validation data loaders
 transform_val = get_val_transforms()
 val_dataset = datasets.ImageFolder(os.path.join(
-    DATA_DIR, "val"), transform=transform_val)
-val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
+    args.data_dir, "val"), transform=transform_val)
+val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
 
 
 # model
-model = load_model(model_name=MODEL_NAME, num_classes=2, is_train=True)
+model = load_model(model_name=args.model, num_classes=2, is_train=True)
 
 
 # Loss and Optimizer
 criterion = nn.CrossEntropyLoss()
-optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
+optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
+
+# Learning rate scheduler
+scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+    optimizer, mode='max', factor=0.5, patience=3, verbose=True)
 
 # Learning rate scheduler
 scheduler = optim.lr_scheduler.ReduceLROnPlateau(
@@ -54,8 +69,9 @@ scheduler = optim.lr_scheduler.ReduceLROnPlateau(
 
 
 # Training Loop with best and last model saving, early stopping, and plotting
-def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler, epochs, patience=7):
+def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler, epochs, model_save_name, patience=7):
     best_val_accuracy = 0.0
+    best_train_accuracy = 0.0
     best_model_state = None
     epochs_without_improvement = 0
 
@@ -132,6 +148,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
         # Save best model and early stopping
         if val_accuracy > best_val_accuracy:
             best_val_accuracy = val_accuracy
+            best_train_accuracy = train_accuracy
             best_model_state = model.state_dict().copy()
             epochs_without_improvement = 0
             print(
@@ -174,9 +191,14 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
     return model, best_model_state, best_val_accuracy, train_accuracies, val_accuracies, train_losses, val_losses
 
 
+# get date with format yyyymmdd
+date_str = datetime.now().strftime("%Y%m%d")
+model_save_name = f"{args.model}_{date_str}"
+
 # Train the model
 trained_model, best_model_state, best_accuracy, train_accs, val_accs, train_losses, val_losses = train_model(
     model, train_loader, val_loader, criterion, optimizer, scheduler, EPOCHS, PATIENCE
+    model, train_loader, val_loader, criterion, optimizer, args.epochs, model_save_name
 )
 
 # get date with format yyyymmdd

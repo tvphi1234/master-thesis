@@ -1,23 +1,41 @@
 import os
+import argparse
 import matplotlib.pyplot as plt
 
 from PIL import Image
 from pytorch_grad_cam import GradCAM
 from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
 
-from utils import MODEL_NAME
-from utils import load_model, visualize_grad_cam, model_predict
+from utils import load_model, visualize_grad_cam
 
-# Tham số
-DATA_SET_PATH = "cache/wrong_repvgg_a0"  # Đường dẫn ảnh sai
-MODEL_PATH = "pretrained_models/models_x10/2025_11_21_640x640/resnet50_20251120_best.pth"
-OUTDIR = "./a"
 
-os.makedirs(OUTDIR, exist_ok=True)
+def get_args():
+    parser = argparse.ArgumentParser(
+        description='Evaluate a deep learning model')
+    parser.add_argument('--data-dir', type=str, default="data/val",
+                        help='Directory containing the validation data (default: data/val)')
+    parser.add_argument('--model-path', type=str, default="./models/xception_20251003_best.pth",
+                        help='Path to the trained model (default: ./models/xception_20251003_best.pth)')
+    parser.add_argument('--batch-size', type=int, default=1,
+                        help='Batch size for evaluation (default: 1)')
+    parser.add_argument('--model', type=str, default='xception',
+                        choices=['xception', 'resnet50',
+                                 'repvgg_a0', 'mobilenetv2_110d'],
+                        help='Model architecture to use (default: xception)')
+    parser.add_argument('--output-dir', type=str, default="./grad_cam_results",
+                        help='Directory to save Grad-CAM results (default: ./grad_cam_results)')
+    return parser.parse_args()
 
-model = load_model(model_name=MODEL_NAME,
+
+# Parse command line arguments
+args = get_args()
+
+os.makedirs(args.output_dir, exist_ok=True)
+
+
+model = load_model(model_name=args.model,
                    num_classes=2,
-                   model_path=MODEL_PATH,
+                   model_path=args.model_path,
                    is_train=False)
 
 
@@ -42,11 +60,19 @@ grad_cam = GradCAM(model=model, target_layers=target_layers)
 # 1 là class bạn muốn xem, có thể thay đổi
 targets = [ClassifierOutputTarget(1)]
 
+classes = {
+    "Benign": 0,
+    "Cancer": 1
+}
 
-for root, _, files in os.walk(DATA_SET_PATH):
+
+for root, _, files in os.walk(args.data_dir):
     for file in files:
         if not file.lower().endswith(('.png', '.jpg', '.jpeg')):
             continue
+
+        class_idx = classes[os.path.basename(root)]
+        targets = [ClassifierOutputTarget(class_idx)]
 
         img_file = os.path.join(root, file)
         img_pil = Image.open(img_file).convert("RGB")
@@ -60,4 +86,4 @@ for root, _, files in os.walk(DATA_SET_PATH):
         plt.imshow(visualization)
         plt.axis('off')
         plt.savefig(os.path.join(
-            OUTDIR, f"grad_cam_{file}"), bbox_inches='tight', pad_inches=0.1)
+            args.output_dir, f"grad_cam_{file}"), bbox_inches='tight', pad_inches=0.1)

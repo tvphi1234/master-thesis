@@ -18,8 +18,9 @@ CLASS_NAMES = ["Benign", "Cancer"]  # 0: Benign, 1: Cancer
 
 
 def load_model(model_name=MODEL_NAME, num_classes=2, model_path=None, is_train=True):
-    # Load model
-    model = create_model(model_name, pretrained=False, num_classes=num_classes)
+    # Load model with pretrained weights for better performance
+    # Pretrained models generally perform better due to transfer learning
+    model = create_model(model_name, pretrained=True, num_classes=num_classes)
 
     if model_path:
         model.load_state_dict(torch.load(model_path, map_location=DEVICE))

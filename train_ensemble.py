@@ -1,17 +1,40 @@
 import os
+import argparse
+import numpy as np
+import matplotlib.pyplot as plt
+
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
+
 from torch.utils.data import DataLoader
 from torchvision import datasets
 from sklearn.metrics import classification_report, confusion_matrix
-import matplotlib.pyplot as plt
-import numpy as np
 from datetime import datetime
 
 from ensemble_model import create_ensemble_model, EnsembleTrainer, get_ensemble_transforms
 from utils import DEVICE, CLASS_NAMES
 
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description='Train an ensemble deep learning model')
+    parser.add_argument('--data-dir', type=str, default='data',
+                        help='Directory containing the training data (default: data)')
+    parser.add_argument('--ensemble-method', type=str, default='average',
+                        choices=['average', 'weighted', 'meta_learner', 'feature_fusion'],
+                        help='Ensemble method to use (default: average)')
+    parser.add_argument('--epochs', type=int, default=30,
+                        help='Number of training epochs (default: 30)')
+    parser.add_argument('--batch-size', type=int, default=32,
+                        help='Batch size for training (default: 32)')
+    parser.add_argument('--learning-rate', type=float, default=0.0001,
+                        help='Learning rate for optimizer (default: 0.0001)')
+    return parser.parse_args()
+
+# Parse command line arguments
+args = parse_args()
 
 class EnsembleTrainingPipeline:
     """
@@ -38,7 +61,7 @@ class EnsembleTrainingPipeline:
 
         # Learning rate scheduler
         self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-            self.optimizer, mode='min', patience=5, factor=0.5, verbose=True
+            self.optimizer, mode='min', patience=5, factor=0.5
         )
 
         # Trainer
@@ -380,16 +403,14 @@ def log_training_results(model_name, num_epochs, train_accuracies, val_accuracie
 
 
 if __name__ == "__main__":
-    # Data directory
-    data_dir = "/home/cybercore/Workspaces/phitv/classify/data"
 
     # Single ensemble training
     pipeline = EnsembleTrainingPipeline(
-        data_dir=data_dir,
-        ensemble_method='average',  # Change this to test different methods
-        batch_size=16,
-        learning_rate=0.0001,
-        num_epochs=30
+        data_dir=args.data_dir,
+        ensemble_method=args.ensemble_method,
+        batch_size=args.batch_size,
+        learning_rate=args.learning_rate,
+        num_epochs=args.epochs
     )
 
     # Train and evaluate
