@@ -8,10 +8,11 @@ from torchvision import transforms
 from pytorch_grad_cam.utils.image import show_cam_on_image
 
 
-IMG_SIZE = 299
+IMG_SIZE = 640
 MAX_HEIGHT = 860
 MAX_WIDTH = 1240
-MODEL_NAME = "xception"
+# "mobilenetv2_100", "resnet50", "xception", "repvgg_a0"
+MODEL_NAME = "resnet50"
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 CLASS_NAMES = ["Benign", "Cancer"]  # 0: Benign, 1: Cancer
 
@@ -34,12 +35,14 @@ def load_model(model_name=MODEL_NAME, num_classes=2, model_path=None, is_train=T
 def get_train_transforms():
     # Data Preparation
     transform_train = transforms.Compose([
-        PadToMaxSize(),  # Add padding to cover the maximum size
+        # PadToMaxSize(),  # Add padding to cover the maximum size
         transforms.Resize((IMG_SIZE, IMG_SIZE)),
         transforms.RandomHorizontalFlip(p=0.5),  # Random horizontal flip
         transforms.RandomVerticalFlip(p=0.3),    # Random vertical flip
-        # Random rotation (-180 to +180 degrees)
-        transforms.RandomRotation(degrees=180),
+        # Random rotation (-30 to +30 degrees)
+        transforms.RandomRotation(degrees=30),
+        transforms.ColorJitter(
+            brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[
                              0.229, 0.224, 0.225]),  # ImageNet normalization
@@ -49,7 +52,7 @@ def get_train_transforms():
 
 def get_val_transforms():
     transform_val = transforms.Compose([
-        PadToMaxSize(),  # Add padding to cover the maximum size
+        # PadToMaxSize(),  # Add padding to cover the maximum size
         transforms.Resize((IMG_SIZE, IMG_SIZE)),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[
@@ -87,8 +90,11 @@ def visualize_grad_cam(img_pil, grad_cam, targets):
     # grad-CAM
     grayscale_cam = grad_cam(input_tensor=input_tensor, targets=targets)[0]
 
-    # reverse to original size
-    grayscale_cam = reverse_orginal_size(grayscale_cam, original_size)
+    # # reverse to original size
+    # grayscale_cam = reverse_orginal_size(grayscale_cam, original_size)
+
+    grayscale_cam = cv2.resize(
+        grayscale_cam, (original_size[0], original_size[1]))
 
     # visualization
     img_np = np.array(img_pil).astype(np.float32) / 255.0

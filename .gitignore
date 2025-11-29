@@ -2,5 +2,5 @@ dataset/*
 cache/*
 data/*
 data_patients/*
-models/*
+pretrained_models/*
 *.png

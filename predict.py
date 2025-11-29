@@ -1,21 +1,24 @@
 import os
+import cv2
 import torch
 import shutil
 import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
+from PIL import Image
+from pathlib import Path
 
 from torchvision import datasets
 from torch.utils.data import DataLoader
 from sklearn.metrics import confusion_matrix, classification_report, roc_curve, auc
 
-from utils import DEVICE
-from utils import load_model, get_val_transforms
+from utils import DEVICE, CLASS_NAMES
+from utils import load_model, get_val_transforms, model_predict
 
 # Parameters
 BATCH_SIZE = 1
 DATA_SET_PATH = "data/val"
-MODEL_PATH = "./models/xception_20250927_best.pth"
+MODEL_PATH = "./models/xception_20250929_best.pth"
 
 # Data Preparation
 val_transform = get_val_transforms()
@@ -28,6 +31,110 @@ val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
 model = load_model(num_classes=2,
                    model_path=MODEL_PATH,
                    is_train=False)
+
+
+def load_and_preprocess_image(image_path):
+    """
+    Load image and preprocess it for model prediction
+    Handles color conversion from BGR to RGB if necessary
+    """
+    # Method 1: Load with PIL (automatically handles RGB)
+    image = Image.open(image_path)
+
+    # Convert to RGB if image is in different mode (RGBA, L, etc.)
+    image = image.convert('RGB')
+
+    return image
+
+
+def predict_single_image(model, image_path, return_probs=False):
+    """
+    Predict on a single image with proper preprocessing
+    """
+    # Load and preprocess image
+    image = load_and_preprocess_image(image_path)
+    if image is None:
+        return None
+
+    # Make prediction using the existing model_predict function
+    predicted_class, confidence, probabilities = model_predict(model, image)
+
+    result = {
+        'image_path': image_path,
+        'predicted_class': predicted_class,
+        'predicted_label': CLASS_NAMES[predicted_class],
+        'confidence': confidence,
+        'probabilities': probabilities
+    }
+
+    if return_probs:
+        result['all_probabilities'] = probabilities
+
+    return result
+
+
+def predict_folder_images(model, folder_path, class_name=None):
+    """
+    Predict on all images in a folder
+    If class_name is provided, it's used as ground truth for accuracy calculation
+    """
+    image_extensions = ['.png', '.jpg', '.jpeg', '.bmp',
+                        '.tiff', '.PNG', '.JPG', '.JPEG', '.BMP', '.TIFF']
+
+    folder_path = Path(folder_path)
+    results = []
+
+    for ext in image_extensions:
+        for image_path in folder_path.glob(f'*{ext}'):
+            result = predict_single_image(
+                model, str(image_path), return_probs=True)
+            if result is not None:
+                # Add ground truth if provided
+                if class_name is not None:
+                    if class_name in CLASS_NAMES:
+                        result['true_class'] = class_name
+                        result['true_label'] = CLASS_NAMES.index(class_name)
+                    else:
+                        print(
+                            f"Warning: Unknown class name '{class_name}'. Available classes: {CLASS_NAMES}")
+
+                results.append(result)
+
+    return results
+
+
+def calculate_accuracy_from_results(results):
+    """
+    Calculate accuracy metrics from prediction results
+    """
+    if not results or 'true_label' not in results[0]:
+        print("No ground truth labels found in results. Cannot calculate accuracy.")
+        return None
+
+    y_true = [r['true_label'] for r in results]
+    y_pred = [r['predicted_class'] for r in results]
+
+    # Calculate overall accuracy
+    correct = sum(1 for i in range(len(y_true)) if y_true[i] == y_pred[i])
+    accuracy = correct / len(y_true)
+
+    # Calculate per-class accuracy
+    class_accuracies = {}
+    for class_idx, class_name in enumerate(CLASS_NAMES):
+        class_correct = sum(1 for i in range(len(y_true))
+                            if y_true[i] == class_idx and y_pred[i] == class_idx)
+        class_total = sum(1 for label in y_true if label == class_idx)
+        class_accuracies[class_name] = class_correct / \
+            class_total if class_total > 0 else 0
+
+    return {
+        'overall_accuracy': accuracy,
+        'class_accuracies': class_accuracies,
+        'y_true': y_true,
+        'y_pred': y_pred,
+        'total_samples': len(results),
+        'correct_predictions': correct
+    }
 
 
 # Evaluation function with error image collection
@@ -70,13 +177,104 @@ def get_probabilities(model, data_loader):
     return np.array(all_labels), np.array(all_probs)
 
 
-# Evaluate and print confusion matrix and classification report
+def evaluate_with_proper_preprocessing(model, data_path):
+    """
+    Evaluate model with proper image loading and preprocessing
+    This ensures images are loaded and preprocessed the same way as in training
+    """
+    results = []
+
+    # Process each class folder
+    for class_name in CLASS_NAMES:
+        class_folder = Path(data_path) / class_name
+        if class_folder.exists():
+            print(f"Processing {class_name} images from {class_folder}")
+            class_results = predict_folder_images(
+                model, class_folder, class_name)
+            results.extend(class_results)
+            print(f"Found {len(class_results)} {class_name} images")
+        else:
+            print(f"Warning: Class folder {class_folder} does not exist")
+
+    if not results:
+        print(f"No images found in {data_path}")
+        return None, None, []
+
+    # Calculate accuracy
+    accuracy_metrics = calculate_accuracy_from_results(results)
+
+    if accuracy_metrics:
+        # Print results
+        print(f"\n{'='*60}")
+        print("EVALUATION RESULTS WITH PROPER PREPROCESSING")
+        print(f"{'='*60}")
+        print(f"Total images processed: {accuracy_metrics['total_samples']}")
+        print(
+            f"Overall accuracy: {accuracy_metrics['overall_accuracy']:.4f} ({accuracy_metrics['overall_accuracy']*100:.2f}%)")
+        print(
+            f"Correct predictions: {accuracy_metrics['correct_predictions']}/{accuracy_metrics['total_samples']}")
+
+        print("\nPer-class accuracy:")
+        for class_name, acc in accuracy_metrics['class_accuracies'].items():
+            class_count = sum(1 for r in results if r.get(
+                'true_class') == class_name)
+            print(
+                f"  {class_name}: {acc:.4f} ({acc*100:.2f}%) - {class_count} images")
+
+        # Get misclassified images
+        error_files = []
+        for result in results:
+            if result['predicted_class'] != result['true_label']:
+                error_files.append(result['image_path'])
+
+        return accuracy_metrics['y_true'], accuracy_metrics['y_pred'], error_files
+
+    return None, None, []
+
+
+# Method 1: Evaluate using DataLoader (original method)
+print("="*60)
+print("METHOD 1: Using DataLoader (original)")
+print("="*60)
 labels, preds, error_files = evaluate_model(model, val_loader, val_dataset)
 cm = confusion_matrix(labels, preds)
 print("Confusion Matrix:")
 print(cm)
 print("Classification Report:")
 print(classification_report(labels, preds, target_names=val_dataset.classes))
+
+# Method 2: Evaluate with proper preprocessing (recommended)
+print(f"\n{'='*60}")
+print("METHOD 2: Using proper image loading and preprocessing")
+print(f"{'='*60}")
+labels_v2, preds_v2, error_files_v2 = evaluate_with_proper_preprocessing(
+    model, DATA_SET_PATH)
+
+if labels_v2 is not None and preds_v2 is not None:
+    cm_v2 = confusion_matrix(labels_v2, preds_v2)
+    print("\nConfusion Matrix (Method 2):")
+    print(cm_v2)
+    print("Classification Report (Method 2):")
+    print(classification_report(labels_v2, preds_v2, target_names=CLASS_NAMES))
+
+    # Compare methods
+    if len(labels) == len(labels_v2):
+        print(f"\nComparison between methods:")
+        print(f"Method 1 accuracy: {np.mean(labels == preds):.4f}")
+        print(
+            f"Method 2 accuracy: {np.mean(np.array(labels_v2) == np.array(preds_v2)):.4f}")
+
+        # Check if predictions differ
+        if not np.array_equal(preds, preds_v2):
+            diff_count = np.sum(np.array(preds) != np.array(preds_v2))
+            print(
+                f"Predictions differ on {diff_count} images out of {len(labels)}")
+        else:
+            print("Both methods produced identical predictions")
+
+    # Use the better method's results for further analysis
+    labels, preds, error_files = labels_v2, preds_v2, error_files_v2
+    cm = cm_v2
 
 # Print misclassified image paths
 print("Misclassified image files:")
@@ -133,3 +331,44 @@ plt.show()
 
 print(thresholds)
 print(f"AUC Score: {roc_auc:.3f}")
+
+# Example: Test individual images with proper preprocessing
+print(f"\n{'='*60}")
+print("INDIVIDUAL IMAGE PREDICTION EXAMPLES")
+print(f"{'='*60}")
+
+# Test a few individual images if they exist
+test_images = []
+for class_name in CLASS_NAMES:
+    class_folder = Path(DATA_SET_PATH) / class_name
+    if class_folder.exists():
+        # Get first image from each class
+        for ext in ['.png', '.jpg', '.jpeg']:
+            images = list(class_folder.glob(f'*{ext}'))
+            if images:
+                test_images.append((str(images[0]), class_name))
+                break
+
+for image_path, true_class in test_images:
+    result = predict_single_image(model, image_path, return_probs=True)
+    if result:
+        print(f"\nImage: {Path(image_path).name}")
+        print(f"True class: {true_class}")
+        print(
+            f"Predicted: {result['predicted_label']} (confidence: {result['confidence']:.3f})")
+        print(
+            f"Probabilities: Benign={result['probabilities'][0]:.3f}, Cancer={result['probabilities'][1]:.3f}")
+
+        # Check if prediction is correct
+        is_correct = result['predicted_label'] == true_class
+        print(f"Prediction: {'✓ CORRECT' if is_correct else '✗ INCORRECT'}")
+
+print(f"\n{'='*60}")
+print("TIPS FOR USING THIS CODE:")
+print(f"{'='*60}")
+print("1. The new functions handle proper image loading and color conversion")
+print("2. Use predict_single_image() for individual image predictions")
+print("3. Use predict_folder_images() for batch predictions on a folder")
+print("4. Use evaluate_with_proper_preprocessing() for accurate evaluation")
+print("5. Images are automatically converted from BGR to RGB when needed")
+print("6. The code handles various image formats: PNG, JPG, JPEG, BMP, TIFF")

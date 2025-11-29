@@ -17,7 +17,8 @@ def prepare_dataset(dataset_dir, output_dir, train_ratio):
             continue
 
         # Get all file paths for the current class
-        files = [os.path.join(class_path, f) for f in os.listdir(class_path) if os.path.isfile(os.path.join(class_path, f))]
+        files = [os.path.join(class_path, f) for f in os.listdir(
+            class_path) if os.path.isfile(os.path.join(class_path, f))]
 
         # Split files into train and validation sets
         if train_ratio == 0:
@@ -27,7 +28,8 @@ def prepare_dataset(dataset_dir, output_dir, train_ratio):
             train_files = files
             val_files = []
         else:
-            train_files, val_files = train_test_split(files, train_size=train_ratio, random_state=42)
+            train_files, val_files = train_test_split(
+                files, train_size=train_ratio, random_state=42)
 
         # Create class subdirectories in train and val folders
         train_class_dir = os.path.join(train_dir, class_name)
@@ -37,27 +39,33 @@ def prepare_dataset(dataset_dir, output_dir, train_ratio):
 
         # Copy files to the respective directories
         for file in train_files:
-            file_name = os.path.dirname(file).split('/')[-2] + '_' + os.path.basename(file)
+            file_name = os.path.dirname(file).split(
+                '/')[-2] + '_' + os.path.basename(file)
             shutil.copy(file, os.path.join(train_class_dir, file_name))
         for file in val_files:
-            file_name = os.path.dirname(file).split('/')[-2] + '_' + os.path.basename(file)
+            file_name = os.path.dirname(file).split(
+                '/')[-2] + '_' + os.path.basename(file)
             shutil.copy(file, os.path.join(val_class_dir, file_name))
 
-        print(f"Class '{class_name}': {len(train_files)} train, {len(val_files)} val")
+        print(
+            f"Class '{class_name}': {len(train_files)} train, {len(val_files)} val")
+
 
 if __name__ == "__main__":
     # Parameters
-    OUTPUT_DIR = "data_patients"  # Path to save the split dataset
+    OUTPUT_DIR = "data"  # Path to save the split dataset
     data_dict = {
-        "dataset/x10/04.06.2025": 1.0,
-        "dataset/x10/17.06.2025": 1.0,
-        "dataset/x10/26.06.2025": 1.0,
-        "dataset/x10/11.07.2025": 1.0,
-        "dataset/x10/16.07.2025": 1.0,
-        "dataset/x10/23.07.2025": 1.0,
-        "dataset/x10/29.07.2025": 1.0,
-        "dataset/x10/05.08.2025": 1.0,
-        "dataset/x10/19.08.2025": 0.0
+        "dataset/x10/04.06.2025": 0.8,
+        "dataset/x10/17.06.2025": 0.8,
+        "dataset/x10/26.06.2025": 0.8,
+        "dataset/x10/11.07.2025": 0.8,
+        "dataset/x10/16.07.2025": 0.8,
+        "dataset/x10/23.07.2025": 0.8,
+        "dataset/x10/29.07.2025": 0.8,
+        "dataset/x10/05.08.2025": 0.8,
+        "dataset/x10/19.08.2025": 0.8,
+        "dataset/x10/24.09.2025": 0.8,
+        "dataset/x10/02.10.2025": 0.8
     }
 
     for DATASET_DIR, TRAIN_RATIO in data_dict.items():
