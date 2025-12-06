@@ -3,66 +3,22 @@ import torch
 import numpy as np
 
 from PIL import Image
-from timm import create_model
 from torchvision import transforms
 from pytorch_grad_cam.utils.image import show_cam_on_image
 
 
-IMG_SIZE = 640
 MAX_HEIGHT = 860
 MAX_WIDTH = 1240
+
 # "mobilenetv2_100", "resnet50", "xception", "repvgg_a0"
-MODEL_NAME = "resnet50"
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 CLASS_NAMES = ["Benign", "Cancer"]  # 0: Benign, 1: Cancer
+# 0: Stage 1, 1: Stage 2, 2: Stage 3
+STAGE_NAMES = ["Stage 1", "Stage 2"]
 
 
-def load_model(model_name=MODEL_NAME, num_classes=2, model_path=None, is_train=True):
-    # Load model with pretrained weights for better performance
-    # Pretrained models generally perform better due to transfer learning
-    model = create_model(model_name, pretrained=True, num_classes=num_classes)
-
-    if model_path:
-        model.load_state_dict(torch.load(model_path, map_location=DEVICE))
-
-    model = model.to(DEVICE)
-
-    if not is_train:
-        model.eval()
-
-    return model
-
-
-def get_train_transforms():
-    # Data Preparation
-    transform_train = transforms.Compose([
-        # PadToMaxSize(),  # Add padding to cover the maximum size
-        transforms.Resize((IMG_SIZE, IMG_SIZE)),
-        transforms.RandomHorizontalFlip(p=0.5),  # Random horizontal flip
-        transforms.RandomVerticalFlip(p=0.3),    # Random vertical flip
-        # Random rotation (-30 to +30 degrees)
-        transforms.RandomRotation(degrees=30),
-        transforms.ColorJitter(
-            brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[
-                             0.229, 0.224, 0.225]),  # ImageNet normalization
-    ])
-    return transform_train
-
-
-def get_val_transforms():
-    transform_val = transforms.Compose([
-        # PadToMaxSize(),  # Add padding to cover the maximum size
-        transforms.Resize((IMG_SIZE, IMG_SIZE)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[
-                             0.229, 0.224, 0.225]),  # ImageNet normalization
-    ])
-    return transform_val
-
-
-def reverse_orginal_size(img, original_size):
+def reverse_original_size(img, original_size):
     # zero img
     zero_img = np.zeros(
         (original_size[0], original_size[1], 3), dtype=np.uint8)
@@ -103,22 +59,6 @@ def visualize_grad_cam(img_pil, grad_cam, targets):
     visualization = Image.fromarray(visualization)
 
     return visualization, grayscale_cam
-
-
-def model_predict(model, img_pil):
-    """Make prediction on the image"""
-
-    # val transform
-    val_transform = get_val_transforms()
-
-    # transform image
-    image_tensor = val_transform(img_pil).unsqueeze(0).to(DEVICE)
-
-    with torch.no_grad():
-        outputs = model(image_tensor)
-        probabilities = torch.nn.functional.softmax(outputs, dim=1)
-        confidence, predicted_class = torch.max(probabilities, 1)
-        return predicted_class.item(), confidence.item(), probabilities[0].cpu().numpy()
 
 
 # define a function to add padding to images to cover the maximum size

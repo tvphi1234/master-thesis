@@ -1,71 +1,130 @@
 import os
-import argparse
-
 import torch
+import argparse
 import torch.nn as nn
 import torch.optim as optim
-import matplotlib.pyplot as plt
 
-from datetime import datetime
-from pathlib import Path
 from tqdm import tqdm
-from torchvision import datasets
-from torch.utils.data import DataLoader
+from datetime import datetime
 
-from utils import DEVICE, MODEL_NAME
-from utils import get_train_transforms, get_val_transforms, load_model
+from utils import DEVICE
+from models import CustomModel
+from dataloader import get_dataloader, get_train_transforms, get_val_transforms
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train a deep learning model')
     parser.add_argument('--data-dir', type=str, default='data',
                         help='Directory containing the training data (default: data)')
-    parser.add_argument('--epochs', type=int, default=30,
-                        help='Number of training epochs (default: 30)')
-    parser.add_argument('--batch-size', type=int, default=32,
-                        help='Batch size for training (default: 32)')
-    parser.add_argument('--learning-rate', type=float, default=0.0001,
-                        help='Learning rate for optimizer (default: 0.0001)')
+    parser.add_argument('--epochs', type=int, default=100,
+                        help='Number of training epochs (default: 100)')
+    parser.add_argument('--batch-size', type=int, default=8,
+                        help='Batch size for training (default: 8)')
+    parser.add_argument('--learning-rate', type=float, default=0.001,
+                        help='Learning rate for optimizer (default: 0.001)')
     parser.add_argument('--model', type=str, default='xception',
                         choices=['xception', 'resnet50', 'repvgg_a0', 'repvgg_a1', 'repvgg_a2', 'repvgg_b0', 'repvgg_b1', 'repvgg_b2', 'repvgg_b3',
                                  'mobilenetv2_100', 'mobilenetv2_110d', 'mobilenetv2_120d', 'mobilenetv3_large_100', 'mobilenetv3_small_100'],
                         help='Model architecture to use (default: xception)')
+    parser.add_argument('--patience', type=int, default=7,
+                        help='Patience for early stopping (default: 7)')
+    parser.add_argument('--models-dir', type=str, default='models',
+                        help='Directory to save trained models (default: models)')
     return parser.parse_args()
 
 
 # Parse command line arguments
 args = parse_args()
-
-# training data loaders
-transform_train = get_train_transforms()
-train_dataset = datasets.ImageFolder(os.path.join(
-    args.data_dir, "train"), transform=transform_train)
-train_loader = DataLoader(
-    train_dataset, batch_size=args.batch_size, shuffle=True)
+os.makedirs(args.models_dir, exist_ok=True)
 
 
-# validation data loaders
-transform_val = get_val_transforms()
-val_dataset = datasets.ImageFolder(os.path.join(
-    args.data_dir, "val"), transform=transform_val)
-val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
+def calculate_loss(cancer_output, level_output, labels, levels, criterion):
+    loss_cancer = criterion(cancer_output, labels)
+    num_samples_cancer = labels.size(0)
+
+    # Use raw logits for argmax; values can be negative and that's fine
+    predicted_cancer = cancer_output.argmax(dim=1)
+    correct_cancer = (predicted_cancer == labels).sum().item()
+
+    # skip level loss for entries where level <= 0 (e.g. -1 or 0)
+    # levels: tensor of shape (batch,), with non-positive values meaning 'no label'
+    valid_mask = levels > 0
+
+    if valid_mask.any():
+        # select only valid samples
+        # If your level labels are 1..K, convert to 0..K-1 for CrossEntropyLoss
+        level_targets = levels[valid_mask] - 1
+        level_preds = level_output[valid_mask]
+        loss_level = criterion(level_preds, level_targets)
+        num_samples_level = level_targets.size(0)
+
+        predicted_levels = torch.argmax(level_preds, 1)
+        correct_level = (predicted_levels == level_targets).sum().item()
+    else:
+        # no valid level labels in this batch
+        loss_level = torch.tensor(0.0, device=DEVICE)
+        num_samples_level = 0
+        correct_level = 0
+
+    loss = (loss_cancer*num_samples_cancer + loss_level *
+            num_samples_level) / (num_samples_cancer + num_samples_level)
+
+    return {"loss": loss, "loss_cancer": loss_cancer, "loss_level": loss_level,
+            "correct_cancer": correct_cancer, "correct_level": correct_level,
+            "num_samples_cancer": num_samples_cancer, "num_samples_level": num_samples_level}
 
 
-# model
-model = load_model(model_name=args.model, num_classes=2, is_train=True)
+def run_epoch(model, data_loader, criterion, optimizer=None, training=False):
 
+    total_dict = {
+        "loss": 0.0,
+        "loss_cancer": 0.0,
+        "loss_level": 0.0,
+        "correct_cancer": 0,
+        "correct_level": 0,
+        "num_samples_cancer": 0,
+        "num_samples_level": 0
+    }
 
-# Loss and Optimizer
-criterion = nn.CrossEntropyLoss()
-optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
+    if training:
+        desc = "Training Batches "
+    else:
+        desc = "Validation Batches "
 
-# Learning rate scheduler
-scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-    optimizer, mode='max', factor=0.5, patience=3, verbose=True)
+    for inputs, labels, levels in tqdm(data_loader, desc=desc):
+        inputs, labels, levels = inputs.to(
+            DEVICE), labels.to(DEVICE), levels.to(DEVICE)
 
-# Learning rate scheduler
-scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-    optimizer, mode='max', factor=0.5, patience=3, verbose=True)
+        if training:
+            optimizer.zero_grad()
+
+        cancer_output, level_output = model(inputs)
+
+        loss_dict = calculate_loss(
+            cancer_output, level_output, labels, levels, criterion)
+
+        if training:
+            loss_dict["loss"].backward()
+            optimizer.step()
+
+        total_dict["loss"] += loss_dict["loss"].item()
+        total_dict["correct_cancer"] += loss_dict["correct_cancer"]
+        total_dict["correct_level"] += loss_dict["correct_level"]
+        total_dict["loss_cancer"] += loss_dict["loss_cancer"].item()
+        total_dict["loss_level"] += loss_dict["loss_level"].item()
+        total_dict["num_samples_cancer"] += loss_dict["num_samples_cancer"]
+        total_dict["num_samples_level"] += loss_dict["num_samples_level"]
+
+    average_loss = total_dict["loss"] / len(data_loader)
+    average_cancer_loss = total_dict["loss_cancer"] / len(data_loader)
+    average_level_loss = total_dict["loss_level"] / len(data_loader)
+    accuracy = (total_dict["correct_cancer"] + total_dict["correct_level"]) / \
+        (total_dict["num_samples_cancer"] + total_dict["num_samples_level"])
+    accuracy_cancer = total_dict["correct_cancer"] / \
+        total_dict["num_samples_cancer"]
+    accuracy_level = total_dict["correct_level"] / \
+        total_dict["num_samples_level"]
+    return average_loss, average_cancer_loss, average_level_loss, accuracy, accuracy_cancer, accuracy_level
 
 
 # Training Loop with best and last model saving, early stopping, and plotting
@@ -75,11 +134,23 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
     best_model_state = None
     epochs_without_improvement = 0
 
-    # Lists to store accuracy and loss for plotting
-    train_accuracies = []
-    val_accuracies = []
-    train_losses = []
-    val_losses = []
+    # lists to store training accuracy and loss for plotting
+    train_metrics = {
+        "accuracies": [],
+        "losses": [],
+        "cancer_losses": [],
+        "level_losses": [],
+        "accuracies_cancer": [],
+        "accuracies_level": []
+    }
+    val_metrics = {
+        "accuracies": [],
+        "losses": [],
+        "cancer_losses": [],
+        "level_losses": [],
+        "accuracies_cancer": [],
+        "accuracies_level": []
+    }
 
     print(f"Starting training for {epochs} epochs...")
     print(f"Training on {len(train_loader.dataset)} samples")
@@ -88,57 +159,37 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
     print("-" * 60)
 
     for epoch in tqdm(range(epochs), desc="Training Epochs"):
+
+        # training
         model.train()
-        running_loss = 0.0
-        correct = 0
-        total = 0
+        train_loss, train_cancer_loss, train_level_loss, train_accuracy, train_accuracy_cancer, train_accuracy_level = run_epoch(
+            model, train_loader, criterion, optimizer, training=True)
 
-        for inputs, labels in train_loader:
-            inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
-
-            optimizer.zero_grad()
-            outputs = model(inputs)
-            loss = criterion(outputs, labels)
-            loss.backward()
-            optimizer.step()
-
-            running_loss += loss.item()
-            _, predicted = torch.max(outputs, 1)
-            correct += (predicted == labels).sum().item()
-            total += labels.size(0)
-
-        train_loss = running_loss / len(train_loader)
-        train_accuracy = correct / total
+        train_metrics["accuracies"].append(train_accuracy)
+        train_metrics["losses"].append(train_loss)
+        train_metrics["cancer_losses"].append(train_cancer_loss)
+        train_metrics["level_losses"].append(train_level_loss)
+        train_metrics["accuracies_cancer"].append(train_accuracy_cancer)
+        train_metrics["accuracies_level"].append(train_accuracy_level)
 
         # Validation
         model.eval()
-        val_loss = 0.0
-        correct = 0
-        total = 0
         with torch.no_grad():
-            for inputs, labels in val_loader:
-                inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
-                outputs = model(inputs)
-                loss = criterion(outputs, labels)
+            val_loss, val_cancer_loss, val_level_loss, val_accuracy, val_accuracy_cancer, val_accuracy_level = run_epoch(
+                model, val_loader, criterion)
 
-                val_loss += loss.item()
-                _, predicted = torch.max(outputs, 1)
-                correct += (predicted == labels).sum().item()
-                total += labels.size(0)
-
-        val_loss /= len(val_loader)
-        val_accuracy = correct / total
-
-        # Store metrics for plotting
-        train_accuracies.append(train_accuracy)
-        val_accuracies.append(val_accuracy)
-        train_losses.append(train_loss)
-        val_losses.append(val_loss)
+        val_metrics["accuracies"].append(val_accuracy)
+        val_metrics["losses"].append(val_loss)
+        val_metrics["cancer_losses"].append(val_cancer_loss)
+        val_metrics["level_losses"].append(val_level_loss)
+        val_metrics["accuracies_cancer"].append(val_accuracy_cancer)
+        val_metrics["accuracies_level"].append(val_accuracy_level)
 
         print(f"Epoch {epoch+1}/{epochs}")
-        print(
-            f"Train Loss: {train_loss:.4f}, Train Accuracy: {train_accuracy:.4f}")
-        print(f"Val Loss: {val_loss:.4f}, Val Accuracy: {val_accuracy:.4f}")
+        print(f"Train Loss: {train_loss:.4f} (Cancer: {train_cancer_loss:.4f}, Level: {train_level_loss:.4f}) | "
+              f"Train Acc: {train_accuracy:.4f} (Cancer: {train_accuracy_cancer:.4f}, Level: {train_accuracy_level:.4f})")
+        print(f"Val   Loss: {val_loss:.4f} (Cancer: {val_cancer_loss:.4f}, Level: {val_level_loss:.4f}) | "
+              f"Val   Acc: {val_accuracy:.4f} (Cancer: {val_accuracy_cancer:.4f}, Level: {val_accuracy_level:.4f})")
 
         # Learning rate scheduler step
         scheduler.step(val_accuracy)
@@ -156,18 +207,18 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
 
             # save best model immediately
             best_model_path = os.path.join(
-                MODELS_DIR, f"{MODEL_NAME}_best_{epoch+1}.pth")
+                args.models_dir, f"{args.model}_best_{epoch+1}.pth")
             torch.save(best_model_state, best_model_path)
             print(
                 f"Best model saved as {best_model_path} with accuracy: {best_val_accuracy:.4f}")
         elif val_accuracy == best_val_accuracy:
-            if train_accuracy > max(train_accuracies[:-1], default=0):
+            if train_accuracy > max(train_metrics["accuracies"][:-1], default=0):
                 best_model_state = model.state_dict().copy()
                 print(
                     f"✓ Validation accuracy tied, but improved training accuracy: {train_accuracy:.4f}")
                 epochs_without_improvement = 0
                 best_model_path = os.path.join(
-                    MODELS_DIR, f"{MODEL_NAME}_best_{epoch+1}.pth")
+                    args.models_dir, f"{args.model}_best_{epoch+1}.pth")
                 torch.save(best_model_state, best_model_path)
                 print(
                     f"Best model saved as {best_model_path} with accuracy: {best_val_accuracy:.4f}")
@@ -188,120 +239,49 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
 
         print("-" * 60)
 
-    return model, best_model_state, best_val_accuracy, train_accuracies, val_accuracies, train_losses, val_losses
+    return model, best_model_state, best_val_accuracy, train_metrics["accuracies"], val_metrics["accuracies"], train_metrics["losses"], val_metrics["losses"]
 
 
-# get date with format yyyymmdd
-date_str = datetime.now().strftime("%Y%m%d")
-model_save_name = f"{args.model}_{date_str}"
+if __name__ == "__main__":
 
-# Train the model
-trained_model, best_model_state, best_accuracy, train_accs, val_accs, train_losses, val_losses = train_model(
-    model, train_loader, val_loader, criterion, optimizer, scheduler, EPOCHS, PATIENCE
-    model, train_loader, val_loader, criterion, optimizer, args.epochs, model_save_name
-)
+    # model
+    model = CustomModel(model_name=args.model).to(DEVICE)
 
-# get date with format yyyymmdd
-date_str = datetime.now().strftime("%Y%m%d")
-model_save_name = f"{MODEL_NAME}_{date_str}"
+    # Loss and Optimizer
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
 
-# Save the models in the models directory
-last_model_path = os.path.join(MODELS_DIR, f"{model_save_name}_last.pth")
-best_model_path = os.path.join(MODELS_DIR, f"{model_save_name}_best.pth")
+    # Learning rate scheduler
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode='max', factor=0.5, patience=3, verbose=True)
 
-torch.save(trained_model.state_dict(), last_model_path)
-print(f"Last model saved as {last_model_path}")
+    # get date with format yyyymmdd
+    date_str = datetime.now().strftime("%Y%m%d")
+    model_save_name = f"{args.model}_{date_str}"
 
-torch.save(best_model_state, best_model_path)
-print(
-    f"Best model saved as {best_model_path} with accuracy: {best_accuracy:.4f}")
+    # Datasets and Dataloaders
+    train_transform = get_train_transforms()
+    train_loader = get_dataloader(
+        args.data_dir, 'train_annotations.csv', data_transform=train_transform, is_shuffle=True, batch_size=args.batch_size)
 
-# Plot training progress
+    val_transform = get_val_transforms()
+    val_loader = get_dataloader(
+        args.data_dir, 'val_annotations.csv', data_transform=val_transform, is_shuffle=False, batch_size=1)
 
+    # Train the model
+    trained_model, best_model_state, best_accuracy, train_accs, val_accs, train_losses, val_losses = train_model(
+        model, train_loader, val_loader, criterion, optimizer, scheduler, args.epochs, model_save_name, args.patience
+    )
 
-def plot_training_progress(train_accs, val_accs, train_losses, val_losses, model_name):
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
+    # Save the models in the models directory
+    last_model_path = os.path.join(
+        args.models_dir, f"{model_save_name}_last.pth")
+    best_model_path = os.path.join(
+        args.models_dir, f"{model_save_name}_best.pth")
 
-    # Plot accuracy
-    epochs_range = range(1, len(train_accs) + 1)
-    ax1.plot(epochs_range, train_accs, 'b-', label='Training Accuracy')
-    ax1.plot(epochs_range, val_accs, 'r-', label='Validation Accuracy')
-    ax1.set_title('Model Accuracy')
-    ax1.set_xlabel('Epoch')
-    ax1.set_ylabel('Accuracy')
-    ax1.legend()
-    ax1.grid(True)
+    torch.save(trained_model.state_dict(), last_model_path)
+    print(f"Last model saved as {last_model_path}")
 
-    # Plot loss
-    ax2.plot(epochs_range, train_losses, 'b-', label='Training Loss')
-    ax2.plot(epochs_range, val_losses, 'r-', label='Validation Loss')
-    ax2.set_title('Model Loss')
-    ax2.set_xlabel('Epoch')
-    ax2.set_ylabel('Loss')
-    ax2.legend()
-    ax2.grid(True)
-
-    plt.tight_layout()
-
-    # Save plot
-    plot_path = os.path.join(MODELS_DIR, f"{model_name}_training_progress.png")
-    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
-    print(f"Training progress plot saved as {plot_path}")
-    plt.show()
-
-
-# Generate and save training plots
-plot_training_progress(train_accs, val_accs, train_losses,
-                       val_losses, model_save_name)
-
-
-# Enhanced logging to a file
-log_path = os.path.join(MODELS_DIR, f"{model_save_name}_log.txt")
-with open(log_path, "w") as f:
-    f.write(f"Training Log - {model_save_name}\n")
-    f.write("=" * 50 + "\n")
-    f.write(f"Model: {MODEL_NAME}\n")
-    f.write(f"Training Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-    f.write(f"Total Epochs Planned: {EPOCHS}\n")
-    f.write(f"Total Epochs Completed: {len(train_accs)}\n")
-    f.write(f"Early Stopping Patience: {PATIENCE}\n")
-    f.write(f"Batch Size: {BATCH_SIZE}\n")
-    f.write(f"Learning Rate: {LEARNING_RATE}\n")
-    f.write(f"Device: {DEVICE}\n")
-    f.write("\n")
-    f.write("Dataset Information:\n")
-    f.write(f"Training samples: {len(train_loader.dataset)}\n")
-    f.write(f"Validation samples: {len(val_loader.dataset)}\n")
-    f.write(f"Classes: {train_loader.dataset.classes}\n")
-    f.write("\n")
-    f.write("Results:\n")
-    f.write(f"Best validation accuracy: {best_accuracy:.4f}\n")
-    f.write(f"Final training accuracy: {train_accs[-1]:.4f}\n")
-    f.write(f"Final validation accuracy: {val_accs[-1]:.4f}\n")
-    f.write(f"Final training loss: {train_losses[-1]:.4f}\n")
-    f.write(f"Final validation loss: {val_losses[-1]:.4f}\n")
-    f.write("\n")
-    f.write("Model Files:\n")
-    f.write(f"Best model: {best_model_path}\n")
-    f.write(f"Last model: {last_model_path}\n")
-    f.write(
-        f"Training plot: {os.path.join(MODELS_DIR, f'{model_save_name}_training_progress.png')}\n")
-    f.write("\n")
-    f.write("Detailed Metrics:\n")
-    f.write(f"train_accuracies: {train_accs}\n")
-    f.write(f"val_accuracies: {val_accs}\n")
-    f.write(f"train_losses: {train_losses}\n")
-    f.write(f"val_losses: {val_losses}\n")
-
-print(f"Training log saved to {log_path}")
-
-# Print final summary
-print("\n" + "=" * 60)
-print("TRAINING COMPLETED")
-print("=" * 60)
-print(f"Best validation accuracy: {best_accuracy:.4f}")
-print(f"Models saved in: {MODELS_DIR}/")
-print(f"  - Best model: {model_save_name}_best.pth")
-print(f"  - Last model: {model_save_name}_last.pth")
-print(f"Training log: {log_path}")
-print("=" * 60)
+    torch.save(best_model_state, best_model_path)
+    print(
+        f"Best model saved as {best_model_path} with accuracy: {best_accuracy:.4f}")

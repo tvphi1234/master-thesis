@@ -109,6 +109,7 @@ def create_annotations_file(data_dict, output_dir="data"):
 if __name__ == "__main__":
     # Parameters
     OUTPUT_DIR = "data"  # Path to save the split dataset
+
     # data_dict = {
     #     "dataset/x10/04.06.2025": 0.8,
     #     "dataset/x10/17.06.2025": 0.8,

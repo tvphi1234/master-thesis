@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 
 from collections import defaultdict
 
+
 def analyze_dataset(dataset_dir):
     class_counts = {}
     for root, dirs, files in os.walk(dataset_dir):
@@ -34,9 +35,11 @@ def analyze_dataset(dataset_dir):
     # Save the plot
     plt.savefig(os.path.join(dataset_dir, "class_distribution.png"))
 
+
 def extract_patient_id(filename):
     id = filename.replace(".png", "").split(" ")[0]
     return id
+
 
 def analyze_patients(dataset_dir):
     # patient_images[class][patient_id] = count
@@ -51,7 +54,8 @@ def analyze_patients(dataset_dir):
     class_names = sorted(patient_images.keys())
 
     # Lấy danh sách tất cả bệnh nhân
-    all_patients = sorted(set(pid for class_dict in patient_images.values() for pid in class_dict.keys()))
+    all_patients = sorted(
+        set(pid for class_dict in patient_images.values() for pid in class_dict.keys()))
 
     # Chuẩn bị dữ liệu cho stacked bar chart
     data_per_class = []
@@ -64,9 +68,9 @@ def analyze_patients(dataset_dir):
     bottom = [0] * len(all_patients)
     colors = ['#1f77b4', '#ff7f0e']  # Thay đổi nếu có nhiều class hơn
     for idx, (class_name, data) in enumerate(zip(class_names, data_per_class)):
-        plt.bar(all_patients, data, bottom=bottom, label=class_name, color=colors[idx % len(colors)])
+        plt.bar(all_patients, data, bottom=bottom,
+                label=class_name, color=colors[idx % len(colors)])
         bottom = [b + d for b, d in zip(bottom, data)]
-
 
     # Tổng số hình ảnh cho toàn bộ
     total_images = sum(sum(data) for data in data_per_class)
@@ -90,19 +94,20 @@ def analyze_patients(dataset_dir):
     plt.xticks(rotation=90, fontsize=8)
     plt.legend()
     plt.tight_layout()
-    plt.savefig(os.path.join(dataset_dir, "stacked_bar_images_per_patient.png"))
+    plt.savefig(os.path.join(
+        dataset_dir, "stacked_bar_images_per_patient.png"))
 
 
 if __name__ == "__main__":
-    # analyze_dataset("data")
-    # print("\n---\n")
-    # analyze_dataset("data/train")
-    # print("\n---\n")
-    # analyze_dataset("data/val")
+    analyze_dataset("data")
+    print("\n---\n")
+    analyze_dataset("data/train")
+    print("\n---\n")
+    analyze_dataset("data/val")
 
-    print("-------total images in data:")
-    analyze_patients("data_patients")
-    print("\n-----data_patients/train\n")
-    analyze_patients("data_patients/train")
-    print("\n-----data_patients/val\n")
-    analyze_patients("data_patients/val")
+    # print("-------total images in data:")
+    # analyze_patients("data_patients")
+    # print("\n-----data_patients/train\n")
+    # analyze_patients("data_patients/train")
+    # print("\n-----data_patients/val\n")
+    # analyze_patients("data_patients/val")
