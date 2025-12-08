@@ -89,6 +89,7 @@ class CustomImageDataset(Dataset):
             '.png', '.jpg', '.jpeg', '.bmp', '.tiff'),
         return_path: bool = False,
         return_metadata: bool = False,
+        task_type: str = 'cancer',
     ):
         super().__init__()
         self.root_dir = root_dir
@@ -102,6 +103,7 @@ class CustomImageDataset(Dataset):
         self.classes = classes or []
         self.class_to_idx: Dict[str, int] = {}
         self.samples: List[Tuple[str, int, Dict[str, Any]]] = []
+        self.task_type = task_type   # 'cancer' or 'stage'
 
         if annotations_file:
             self._load_from_csv(annotations_file)
@@ -123,6 +125,11 @@ class CustomImageDataset(Dataset):
                 continue
 
             img_path, patient_id, class_label, level = row
+
+            if self.task_type == 'stage':
+                if int(level) < 1:
+                    # skip samples with no stage label
+                    continue
 
             if not os.path.exists(img_path):
                 # skip missing files but keep processing
@@ -159,7 +166,8 @@ class CustomImageDataset(Dataset):
         if level is not None:
             meta["level"] = int(level)
 
-        level = torch.tensor(meta.get("level", -1), dtype=torch.long)
+        level = torch.tensor(meta.get("level", -1),
+                             dtype=torch.long) - 1  # adjust to 0-based
 
         return (img, label, level)
 
@@ -191,7 +199,7 @@ def compute_class_weights(dataset: CustomImageDataset) -> torch.Tensor:
 
 
 def get_dataloader(data_dir, annotation_file,
-                   data_transform=None, is_shuffle=True, batch_size=1):
+                   data_transform=None, is_shuffle=True, batch_size=1, task_type='cancer'):
 
     annotation_file = os.path.join(data_dir, annotation_file)
 
@@ -199,7 +207,8 @@ def get_dataloader(data_dir, annotation_file,
         root_dir=data_dir,
         annotations_file=annotation_file,
         transform=data_transform,
-        return_metadata=True
+        return_metadata=True,
+        task_type=task_type
     )
 
     data_loader = DataLoader(

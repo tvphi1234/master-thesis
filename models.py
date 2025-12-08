@@ -8,42 +8,54 @@ from dataloader import get_val_transforms
 
 
 class CustomModel(nn.Module):
-    def __init__(self, model_name):
+    def __init__(self, model_name, task_type, num_classes=2):
         super(CustomModel, self).__init__()
         self.backbone = create_model(
-            model_name, pretrained=True, num_classes=2)
+            model_name, pretrained=True, num_classes=num_classes)
 
-        # remove the final classification layer
-        self.backbone.reset_classifier(0)
+        if task_type == 'multi_task':
 
-        self.cancer_classifier = nn.Sequential(
-            nn.Linear(2048, 512),
-            nn.ReLU(),
-            nn.Dropout(0.5),
-            nn.Linear(512, 2)
-        )
+            # remove the final classification layer
+            self.backbone.reset_classifier(0)
 
-        self.level_classifier = nn.Sequential(
-            nn.Linear(2048, 512),
-            nn.ReLU(),
-            nn.Dropout(0.5),
-            nn.Linear(512, 2)
-        )
+            self.cancer_classifier = nn.Sequential(
+                nn.Linear(2048, 512),
+                nn.ReLU(),
+                nn.Dropout(0.5),
+                nn.Linear(512, 2)
+            )
+
+            self.stage_classifier = nn.Sequential(
+                nn.Linear(2048, 512),
+                nn.ReLU(),
+                nn.Dropout(0.5),
+                nn.Linear(512, 2)
+            )
 
     def forward(self, x):
         # Define the forward pass
         features = self.backbone(x)
-        cancer_output = self.cancer_classifier(features)
-        level_output = self.level_classifier(features)
-        return cancer_output, level_output
+
+        if hasattr(self, 'cancer_classifier') and hasattr(self, 'stage_classifier'):
+            cancer_output = self.cancer_classifier(features)
+            level_output = self.stage_classifier(features)
+            return cancer_output, level_output
+        else:
+            return features
 
     def predict(self, x):
         self.eval()
         with torch.no_grad():
-            cancer_output, level_output = self.forward(x)
-            cancer_probs = torch.nn.functional.softmax(cancer_output, dim=1)
-            level_probs = torch.nn.functional.softmax(level_output, dim=1)
-            return cancer_probs, level_probs
+            if (hasattr(self, 'cancer_classifier') and hasattr(self, 'stage_classifier')):
+                cancer_output, level_output = self.forward(x)
+                cancer_probs = torch.nn.functional.softmax(
+                    cancer_output, dim=1)
+                level_probs = torch.nn.functional.softmax(level_output, dim=1)
+                return cancer_probs, level_probs
+            else:
+                features = self.forward(x)
+                probs = torch.nn.functional.softmax(features, dim=1)
+                return probs
 
     def load_pretrained_weights(self, weight_path):
         """Load pretrained weights from `weight_path`.

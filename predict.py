@@ -24,6 +24,9 @@ def get_args():
                         help='Model architecture to use (default: xception)')
     parser.add_argument('--model-path', type=str, default="./models/xception_20251003_best.pth",
                         help='Path to the trained model (default: ./models/xception_20251003_best.pth)')
+    parser.add_argument('--task-type', type=str, default='cancer',
+                        choices=['cancer', 'stage', 'multi_task'],
+                        help='Task type for the model (default: cancer)')
     return parser.parse_args()
 
 
@@ -178,7 +181,8 @@ def get_probabilities(model, data_loader):
 if __name__ == "__main__":
 
     # model
-    model = CustomModel(model_name=args.model).to(DEVICE)
+    model = CustomModel(model_name=args.model,
+                        task_type=args.task_type).to(DEVICE)
     model.load_pretrained_weights(args.model_path)
 
     test_transform = get_val_transforms()
@@ -187,7 +191,8 @@ if __name__ == "__main__":
         annotation_file="test_annotations.csv",
         data_transform=test_transform,
         is_shuffle=False,
-        batch_size=1
+        batch_size=1,
+        task_type=args.task_type
     )
 
     model.eval()
@@ -200,30 +205,46 @@ if __name__ == "__main__":
             labels = labels.to(DEVICE)
             levels = levels.to(DEVICE)
 
-            cancer_probs, level_probs = model.predict(inputs)
-            cancer_preds = torch.argmax(cancer_probs, dim=1)
-            level_preds = torch.argmax(level_probs, dim=1)
+            if args.task_type == 'multi_task':
 
-            # collect cancer labels/preds
-            cancer_true.extend(labels.cpu().tolist())
-            cancer_pred_list.extend(cancer_preds.cpu().tolist())
+                cancer_probs, level_probs = model.predict(inputs)
+                cancer_preds = torch.argmax(cancer_probs, dim=1)
+                level_preds = torch.argmax(level_probs, dim=1)
 
-            # only evaluate level where label is present (>0)
-            valid_mask = levels > 0
-            if valid_mask.any():
-                # adjust level index: original labels assumed 1..K -> 0..K-1
-                level_targets = (levels[valid_mask] - 1).cpu()
-                level_pred_valid = level_preds[valid_mask].cpu()
-                level_true.extend(level_targets.tolist())
-                level_pred_list.extend(level_pred_valid.tolist())
+                # collect cancer labels/preds
+                cancer_true.extend(labels.cpu().tolist())
+                cancer_pred_list.extend(cancer_preds.cpu().tolist())
 
-    # Confusion matrix for cancer classification
-    cancer_cm = confusion_matrix(
-        cancer_true, cancer_pred_list, labels=list(range(len(CLASS_NAMES))))
-    print("Cancer confusion matrix (rows=true, cols=pred):")
-    print(cancer_cm)
-    print(classification_report(cancer_true,
-          cancer_pred_list, target_names=CLASS_NAMES))
+                # only evaluate level where label is present (>0)
+                valid_mask = levels > 0
+                if valid_mask.any():
+                    # adjust level index: original labels assumed 1..K -> 0..K-1
+                    level_targets = levels[valid_mask].cpu()
+                    level_pred_valid = level_preds[valid_mask].cpu()
+                    level_true.extend(level_targets.tolist())
+                    level_pred_list.extend(level_pred_valid.tolist())
+            else:
+                probs = model.predict(inputs)
+                preds = torch.argmax(probs, dim=1)
+
+                if args.task_type == 'stage':
+                    print(levels, preds)
+                    # only evaluate level where label is present (>0)
+                    level_true.extend(levels.cpu().tolist())  # adjust index
+                    level_pred_list.extend(preds.cpu().tolist())
+
+                else:  # cancer task
+                    cancer_true.extend(labels.cpu().tolist())
+                    cancer_pred_list.extend(preds.cpu().tolist())
+
+    if cancer_true:
+        # Confusion matrix for cancer classification
+        cancer_cm = confusion_matrix(
+            cancer_true, cancer_pred_list, labels=list(range(len(CLASS_NAMES))))
+        print("Cancer confusion matrix (rows=true, cols=pred):")
+        print(cancer_cm)
+        print(classification_report(cancer_true,
+                                    cancer_pred_list, target_names=CLASS_NAMES))
 
     # Confusion matrix for level prediction (only for valid labels)
     if level_true:
