@@ -8,12 +8,16 @@ from dataloader import get_val_transforms
 
 
 class CustomModel(nn.Module):
-    def __init__(self, model_name, task_type, num_classes=2):
+    def __init__(self, model_name, task_type, num_classes=2, num_stages=3):
         super(CustomModel, self).__init__()
-        self.backbone = create_model(
-            model_name, pretrained=True, num_classes=num_classes)
 
-        if task_type == 'multi_task':
+        if task_type == "cancer":
+            self.backbone = create_model(
+                model_name, pretrained=True, num_classes=num_classes)
+        elif task_type == "stage":
+            self.backbone = create_model(
+                model_name, pretrained=True, num_classes=num_stages)
+        elif task_type == 'multi_task':
 
             # remove the final classification layer
             self.backbone.reset_classifier(0)
@@ -22,14 +26,14 @@ class CustomModel(nn.Module):
                 nn.Linear(2048, 512),
                 nn.ReLU(),
                 nn.Dropout(0.5),
-                nn.Linear(512, 2)
+                nn.Linear(512, num_classes)
             )
 
             self.stage_classifier = nn.Sequential(
                 nn.Linear(2048, 512),
                 nn.ReLU(),
                 nn.Dropout(0.5),
-                nn.Linear(512, 2)
+                nn.Linear(512, num_stages)
             )
 
     def forward(self, x):
@@ -110,7 +114,7 @@ class CustomModel(nn.Module):
             raise RuntimeError(
                 f"Failed to load pretrained weights from {weight_path}: {e}")
 
-    def model_predict(self, img_pil):
+    def predict_single_image(self, img_pil):
         """Make prediction on the image"""
 
         # val transform

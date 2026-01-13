@@ -218,7 +218,10 @@ if __name__ == "__main__":
     # Datasets and Dataloaders
     train_transform = get_train_transforms()
     train_loader = get_dataloader(args.data_dir,
-                                  annotation_file='train_annotations.csv',
+                                  annotation_files=['x4_train_annotations.csv', 
+                                                    'x10_train_annotations.csv', 
+                                                    'x10_warwick_train_annotations.csv',
+                                                    'x40_train_annotations.csv'],
                                   data_transform=train_transform,
                                   is_shuffle=True,
                                   batch_size=args.batch_size,
@@ -226,7 +229,9 @@ if __name__ == "__main__":
 
     val_transform = get_val_transforms()
     val_loader = get_dataloader(args.data_dir,
-                                annotation_file='val_annotations.csv',
+                                annotation_files=['x4_val_annotations.csv',
+                                                  'x10_val_annotations.csv', 
+                                                  'x40_val_annotations.csv'],
                                 data_transform=val_transform,
                                 is_shuffle=False,
                                 batch_size=1,

@@ -5,6 +5,7 @@ import numpy as np
 from PIL import Image
 from torchvision import transforms
 from pytorch_grad_cam.utils.image import show_cam_on_image
+from dataloader import get_val_transforms
 
 
 MAX_HEIGHT = 860
@@ -15,13 +16,10 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 CLASS_NAMES = ["Benign", "Cancer"]  # 0: Benign, 1: Cancer
 # 0: Stage 1, 1: Stage 2, 2: Stage 3
-STAGE_NAMES = ["Stage 1", "Stage 2"]
+STAGE_NAMES = ["Stage 1", "Stage 2", "Stage 3"]
 
 
 def reverse_original_size(img, original_size):
-    # zero img
-    zero_img = np.zeros(
-        (original_size[0], original_size[1], 3), dtype=np.uint8)
 
     # get padding
     (pad_left, pad_top, pad_right,
@@ -35,14 +33,19 @@ def reverse_original_size(img, original_size):
     return img
 
 
-def visualize_grad_cam(img_pil, grad_cam, targets):
-    original_size = img_pil.size  # (width, height)
+def visualize_grad_cam(img_pil = None, img_tensor = None, grad_cam = None, targets = None):
 
-    # val transform
-    val_transform = get_val_transforms()
+    if img_tensor is None:
+        original_size = img_pil.size  # (width, height)
 
-    # transform image
-    input_tensor = val_transform(img_pil).unsqueeze(0).to(DEVICE)
+        # val transform
+        val_transform = get_val_transforms()
+
+        # transform image
+        input_tensor = val_transform(img_pil).unsqueeze(0).to(DEVICE)
+    else:
+        input_tensor = img_tensor
+        original_size = (img_tensor.shape[3], img_tensor.shape[2])  # (width, height)
 
     # grad-CAM
     grayscale_cam = grad_cam(input_tensor=input_tensor, targets=targets)[0]

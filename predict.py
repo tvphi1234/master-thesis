@@ -3,6 +3,7 @@ import argparse
 import numpy as np
 
 from PIL import Image
+from tqdm import tqdm
 from pathlib import Path
 from sklearn.metrics import confusion_matrix, classification_report, roc_curve, auc
 
@@ -24,7 +25,7 @@ def get_args():
                         help='Model architecture to use (default: xception)')
     parser.add_argument('--model-path', type=str, default="./models/xception_20251003_best.pth",
                         help='Path to the trained model (default: ./models/xception_20251003_best.pth)')
-    parser.add_argument('--task-type', type=str, default='cancer',
+    parser.add_argument('--task-type', type=str, default='multi_task',
                         choices=['cancer', 'stage', 'multi_task'],
                         help='Task type for the model (default: cancer)')
     return parser.parse_args()
@@ -188,7 +189,7 @@ if __name__ == "__main__":
     test_transform = get_val_transforms()
     test_loader = get_dataloader(
         data_dir=args.data_dir,
-        annotation_file="test_annotations.csv",
+        annotation_files=["x10_test_annotations.csv", "x10_warwick_test_annotations.csv"],
         data_transform=test_transform,
         is_shuffle=False,
         batch_size=1,
@@ -200,7 +201,7 @@ if __name__ == "__main__":
     level_true, level_pred_list = [], []
 
     with torch.no_grad():
-        for inputs, labels, levels in test_loader:
+        for inputs, labels, levels in tqdm(test_loader):
             inputs = inputs.to(DEVICE)
             labels = labels.to(DEVICE)
             levels = levels.to(DEVICE)
@@ -216,7 +217,7 @@ if __name__ == "__main__":
                 cancer_pred_list.extend(cancer_preds.cpu().tolist())
 
                 # only evaluate level where label is present (>0)
-                valid_mask = levels > 0
+                valid_mask = levels >= 0
                 if valid_mask.any():
                     # adjust level index: original labels assumed 1..K -> 0..K-1
                     level_targets = levels[valid_mask].cpu()
@@ -228,7 +229,6 @@ if __name__ == "__main__":
                 preds = torch.argmax(probs, dim=1)
 
                 if args.task_type == 'stage':
-                    print(levels, preds)
                     # only evaluate level where label is present (>0)
                     level_true.extend(levels.cpu().tolist())  # adjust index
                     level_pred_list.extend(preds.cpu().tolist())

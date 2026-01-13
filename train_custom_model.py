@@ -4,6 +4,8 @@ import argparse
 import torch.nn as nn
 import torch.optim as optim
 
+import logging
+
 from tqdm import tqdm
 from datetime import datetime
 
@@ -11,6 +13,17 @@ from utils import DEVICE
 from models import CustomModel
 from dataloader import get_dataloader, get_train_transforms, get_val_transforms
 
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('models/training.log'),  # Save to file
+        logging.StreamHandler()                # Also print to console
+    ]
+)
+
+logger = logging.getLogger(__name__)
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train a deep learning model')
@@ -30,6 +43,8 @@ def parse_args():
                         help='Patience for early stopping (default: 7)')
     parser.add_argument('--models-dir', type=str, default='models',
                         help='Directory to save trained models (default: models)')
+    parser.add_argument('--task-type', type=str, default='multi_task',
+                        choices=['cancer', 'stage', 'multi_task'],)
     return parser.parse_args()
 
 
@@ -48,13 +63,14 @@ def calculate_loss(cancer_output, level_output, labels, levels, criterion):
 
     # skip level loss for entries where level <= 0 (e.g. -1 or 0)
     # levels: tensor of shape (batch,), with non-positive values meaning 'no label'
-    valid_mask = levels > 0
+    valid_mask = levels >= 0
 
     if valid_mask.any():
         # select only valid samples
         # If your level labels are 1..K, convert to 0..K-1 for CrossEntropyLoss
-        level_targets = levels[valid_mask] - 1
+        level_targets = levels[valid_mask]
         level_preds = level_output[valid_mask]
+
         loss_level = criterion(level_preds, level_targets)
         num_samples_level = level_targets.size(0)
 
@@ -185,10 +201,10 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
         val_metrics["accuracies_cancer"].append(val_accuracy_cancer)
         val_metrics["accuracies_level"].append(val_accuracy_level)
 
-        print(f"Epoch {epoch+1}/{epochs}")
-        print(f"Train Loss: {train_loss:.4f} (Cancer: {train_cancer_loss:.4f}, Level: {train_level_loss:.4f}) | "
+        logger.info(f"Epoch {epoch+1}/{epochs}")
+        logger.info(f"Train Loss: {train_loss:.4f} (Cancer: {train_cancer_loss:.4f}, Level: {train_level_loss:.4f}) | "
               f"Train Acc: {train_accuracy:.4f} (Cancer: {train_accuracy_cancer:.4f}, Level: {train_accuracy_level:.4f})")
-        print(f"Val   Loss: {val_loss:.4f} (Cancer: {val_cancer_loss:.4f}, Level: {val_level_loss:.4f}) | "
+        logger.info(f"Val   Loss: {val_loss:.4f} (Cancer: {val_cancer_loss:.4f}, Level: {val_level_loss:.4f}) | "
               f"Val   Acc: {val_accuracy:.4f} (Cancer: {val_accuracy_cancer:.4f}, Level: {val_accuracy_level:.4f})")
 
         # Learning rate scheduler step
@@ -245,7 +261,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
 if __name__ == "__main__":
 
     # model
-    model = CustomModel(model_name=args.model).to(DEVICE)
+    model = CustomModel(model_name=args.model,
+                        task_type=args.task_type).to(DEVICE)
 
     # Loss and Optimizer
     criterion = nn.CrossEntropyLoss()
@@ -261,12 +278,26 @@ if __name__ == "__main__":
 
     # Datasets and Dataloaders
     train_transform = get_train_transforms()
-    train_loader = get_dataloader(
-        args.data_dir, 'train_annotations.csv', data_transform=train_transform, is_shuffle=True, batch_size=args.batch_size)
+    train_loader = get_dataloader(args.data_dir,
+                                  annotation_files=['x10_train_annotations.csv', 
+                                                    'x10_warwick_train_annotations.csv',
+                                                    'x40_train_annotations.csv'],
+                                  data_transform=train_transform,
+                                  is_shuffle=True,
+                                  batch_size=args.batch_size,
+                                  task_type=args.task_type
+                                  )
 
     val_transform = get_val_transforms()
-    val_loader = get_dataloader(
-        args.data_dir, 'val_annotations.csv', data_transform=val_transform, is_shuffle=False, batch_size=1)
+    val_loader = get_dataloader(args.data_dir,
+                                annotation_files=['x10_val_annotations.csv', 
+                                                  'x10_warwick_test_annotations.csv',
+                                                  'x40_val_annotations.csv'],
+                                data_transform=val_transform,
+                                is_shuffle=False,
+                                batch_size=1,
+                                task_type=args.task_type
+                                )
 
     # Train the model
     trained_model, best_model_state, best_accuracy, train_accs, val_accs, train_losses, val_losses = train_model(

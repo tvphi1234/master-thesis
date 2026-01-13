@@ -69,7 +69,7 @@ class CustomImageDataset(Dataset):
 
     Args:
         root_dir: Folder containing class-subfolders (optional if using CSV)
-        annotations_file: CSV file with two columns: path,label (relative to root_dir or absolute)
+        annotations_files: List of CSV files with two columns: path,label (relative to root_dir or absolute)
         classes: Optional list of class names (if None, detected from subfolders or CSV labels)
         transform: torchvision transforms to apply to images
         loader: function path->PIL.Image (defaults to PIL loader)
@@ -81,7 +81,7 @@ class CustomImageDataset(Dataset):
     def __init__(
         self,
         root_dir: Optional[str] = None,
-        annotations_file: Optional[str] = None,
+        annotation_files: Optional[List[str]] = None,
         classes: Optional[List[str]] = None,
         transform: Optional[Callable] = None,
         loader: Callable = default_image_loader,
@@ -93,7 +93,7 @@ class CustomImageDataset(Dataset):
     ):
         super().__init__()
         self.root_dir = root_dir
-        self.annotations_file = annotations_file
+        self.annotation_files = annotation_files or []
         self.transform = transform
         self.loader = loader
         self.extensions = tuple(ext.lower() for ext in extensions)
@@ -105,26 +105,30 @@ class CustomImageDataset(Dataset):
         self.samples: List[Tuple[str, int, Dict[str, Any]]] = []
         self.task_type = task_type   # 'cancer' or 'stage'
 
-        if annotations_file:
-            self._load_from_csv(annotations_file)
+        if self.annotation_files:
+            self._load_from_csv(annotation_files)
 
-    def _load_from_csv(self, csv_path: str):
+    def _load_from_csv(self, csv_paths: List[str]):
         # expected CSV: path,label (header optional). Paths may be absolute or relative to root_dir
-        with open(csv_path, newline='') as f:
-            reader = csv.reader(f)
-            rows = list(reader)
-
-        # detect header
-        if len(rows) > 0 and any(cell.lower() in ['image_path', 'patient_id', 'class', 'level'] for cell in rows[0]):
-            rows = rows[1:]
+        all_rows = []
+        for csv_path in csv_paths:
+            with open(csv_path, newline='') as f:
+                reader = csv.reader(f)
+                rows = list(reader)
+                all_rows.extend(rows)
 
         labels_seen = set()
-        for row in rows:
+        for row in all_rows:
             # skip empty rows
             if not row:
                 continue
 
             img_path, patient_id, class_label, level = row
+
+            if img_path == 'image_path':
+                # skip header row if present
+                print("Skipping header row in CSV")
+                continue
 
             if self.task_type == 'stage':
                 if int(level) < 1:
@@ -198,14 +202,14 @@ def compute_class_weights(dataset: CustomImageDataset) -> torch.Tensor:
     return torch.tensor(sample_weights, dtype=torch.double)
 
 
-def get_dataloader(data_dir, annotation_file,
+def get_dataloader(data_dir, annotation_files: List[str],
                    data_transform=None, is_shuffle=True, batch_size=1, task_type='cancer'):
 
-    annotation_file = os.path.join(data_dir, annotation_file)
+    annotation_files = [os.path.join(data_dir, af) for af in annotation_files]
 
     custom_dataset = CustomImageDataset(
         root_dir=data_dir,
-        annotations_file=annotation_file,
+        annotation_files=annotation_files,
         transform=data_transform,
         return_metadata=True,
         task_type=task_type
